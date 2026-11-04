@@ -1,0 +1,26 @@
+# Build and publishing outputs
+bin/
+obj/
+publish/
+publish_single/
+dist/
+CheatLauncher.exe
+CheatLauncher.dll
+CheatLauncher.pdb
+CheatLauncher.deps.json
+CheatLauncher.runtimeconfig.json
+*.obj
+*.exp
+*.lib
+*.pdb
+*.log
+cheat_log.txt
+
+# Setup embedded binary payload
+Setup/Resources/payload.zip
+
+# Visual Studio & IDE files
+.vs/
+*.user
+*.suo
+.idea/
