@@ -284,7 +284,7 @@ timeout /t 1 >nul
                 if (key != null)
                 {
                     key.SetValue("DisplayName", "Kingdom: Two Crowns — In-Game Trainer");
-                    key.SetValue("DisplayVersion", "2.5.0");
+                    key.SetValue("DisplayVersion", "2.5.1");
                     key.SetValue("Publisher", "ficksj");
                     key.SetValue("DisplayIcon", Path.Combine(installDir, "CheatLauncher.exe"));
                     key.SetValue("UninstallString", $"cmd.exe /c \"{Path.Combine(installDir, "uninstall.cmd")}\"");
