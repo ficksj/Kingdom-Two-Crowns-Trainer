@@ -3,6 +3,8 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <vector>
+#include <utility>
 #include <thread>
 #include <chrono>
 
@@ -40,6 +42,7 @@ typedef void  (*il2cpp_field_set_value_t)(void* obj, void* field, void* value);
 typedef void* (*il2cpp_runtime_invoke_t)(void* method, void* obj, void** params, void** exc);
 typedef void* (*il2cpp_class_get_type_t)(void* klass);
 typedef void* (*il2cpp_type_get_object_t)(void* type);
+typedef void* (*il2cpp_string_new_utf16_t)(const wchar_t* text, int32_t len);
 
 // Function pointers
 static il2cpp_domain_get_t                  p_il2cpp_domain_get = nullptr;
@@ -56,8 +59,9 @@ static il2cpp_field_set_value_t            p_il2cpp_field_set_value = nullptr;
 static il2cpp_runtime_invoke_t             p_il2cpp_runtime_invoke = nullptr;
 static il2cpp_class_get_type_t             p_il2cpp_class_get_type = nullptr;
 static il2cpp_type_get_object_t            p_il2cpp_type_get_object = nullptr;
+static il2cpp_string_new_utf16_t           p_il2cpp_string_new_utf16 = nullptr;
 
-// IL2CPP Array layout
+// IL2CPP Layouts
 struct Il2CppArray {
     void* klass;
     void* monitor;
@@ -66,9 +70,18 @@ struct Il2CppArray {
     void* vector[1];
 };
 
+struct Il2CppString {
+    void* klass;
+    void* monitor;
+    int32_t length;
+    wchar_t chars[1];
+};
+
 static void* g_domain = nullptr;
 static void* g_gameImage = nullptr;
 static void* g_coreImage = nullptr;
+static void* g_uiImage = nullptr;
+static void* g_tmpImage = nullptr;
 
 // Cheat States
 static bool g_cheatInfiniteStamina = false;
@@ -77,6 +90,7 @@ static bool g_cheatAutoBuild = false;
 static bool g_cheatInfiniteWallet = false;
 static bool g_cheatInvulnerableWalls = false;
 static bool g_cheatDisableSpawning = false;
+static bool g_menuVisible = false;
 
 static std::ofstream g_log;
 
@@ -84,6 +98,299 @@ static void Log(const std::string& msg) {
     if (g_log.is_open()) {
         g_log << msg << std::endl;
         g_log.flush();
+    }
+}
+
+// -------------------------------------------------------------
+// TRANSLATION DICTIONARY (English -> Russian)
+// -------------------------------------------------------------
+static const std::vector<std::pair<std::wstring, std::wstring>> g_translations = {
+    // Top Navigation Tabs
+    { L"ACTIONS", L"ДЕЙСТВИЯ" },
+    { L"TELEPORT", L"ТЕЛЕПОРТ" },
+    { L"SPAWN", L"СПАВН" },
+    { L"SAVES + UNLOCKS", L"СОХРАНЕНИЯ" },
+    { L"DIRECTOR", L"РЕЖИССЕР" },
+    { L"BLENDER", L"БЛЕНДЕР" },
+    { L"CAMERA", L"КАМЕРА" },
+    { L"STATS + CONSOLE", L"СТАТИСТИКА" },
+    { L"DECAY", L"РАЗРУШЕНИЕ" },
+    { L"SEASONAL EVENTS", L"СОБЫТИЯ" },
+
+    // Tech Ages
+    { L"NO TECH", L"БЕЗ ТЕХНОЛОГИЙ" },
+    { L"STONE TECH", L"КАМЕННЫЙ ВЕК" },
+    { L"IRON TECH", L"ЖЕЛЕЗНЫЙ ВЕК" },
+    { L"SET TECH AGE STONE", L"КАМЕННЫЙ ВЕК" },
+    { L"SET TECH AGE IRON", L"ЖЕЛЕЗНЫЙ ВЕК" },
+    { L"SET TECH AGE NONE", L"ДЕРЕВЯННЫЙ ВЕК" },
+
+    // Statues & Shrines
+    { L"UNLOCK ALL STATUES", L"ОТКРЫТЬ ВСЕ СТАТУИ" },
+    { L"ARCHER STATUE", L"СТАТУЯ ЛУЧНИКА" },
+    { L"WORKER STATUE", L"СТАТУЯ СТРОИТЕЛЯ" },
+    { L"KNIGHT STATUE", L"СТАТУЯ РЫЦАРЯ" },
+    { L"FARMER STATUE", L"СТАТУЯ ФЕРМЕРА" },
+    { L"PIKE STATUE", L"СТАТУЯ КОПЕЙЩИКА" },
+
+    // Quests & Lands
+    { L"UNLOCK ALL LANDS", L"ОТКРЫТЬ ВСЕ ОСТРОВА" },
+    { L"UNLOCK QUEST ATHENA", L"КВЕСТ АФИНЫ" },
+    { L"UNLOCK QUEST ARTEMIS", L"КВЕСТ АРТЕМИДЫ" },
+    { L"UNLOCK QUEST HEPHAESTUS", L"КВЕСТ ГЕФЕСТА" },
+    { L"UNLOCK QUEST HERMES", L"КВЕСТ ГЕРМЕСА" },
+
+    // Rulers (Dead Lands & Norse Lands)
+    { L"UNLOCK DEAD LANDS RULERS", L"ПРАВИТЕЛИ DEAD LANDS" },
+    { L"MIRIAM", L"МИРИАМ" },
+    { L"ZANGETSU", L"ЗАНГЕЦУ" },
+    { L"GEBEL", L"ДЖЕБЕЛ" },
+    { L"ALFRED", L"АЛЬФРЕД" },
+    { L"THOR", L"ТОР" },
+    { L"HEL", L"ХЕЛЬ" },
+    { L"HEIMDAL", L"ХЕЙМДАЛЛЬ" },
+    { L"LOKI", L"ЛОКИ" },
+
+    // Saves Management
+    { L"SAVE DEFAULT", L"СОХР. ОСНОВНОЕ" },
+    { L"LOAD DEFAULT", L"ЗАГР. ОСНОВНОЕ" },
+    { L"SAVE SLOT1", L"СОХР. СЛОТ 1" },
+    { L"LOAD SLOT1", L"ЗАГР. СЛОТ 1" },
+    { L"SAVE SLOT2", L"СОХР. СЛОТ 2" },
+    { L"LOAD SLOT2", L"ЗАГР. СЛОТ 2" },
+    { L"SAVE SLOT3", L"СОХР. СЛОТ 3" },
+    { L"LOAD SLOT3", L"ЗАГР. СЛОТ 3" },
+    { L"SAVING ENABLED", L"СОХРАНЕНИЯ" },
+
+    // Cursed & Challenges
+    { L"GET CURSED RANK", L"ПРОКЛЯТЫЙ РАНГ" },
+    { L"ACTIVATE CURSED CROWN", L"ПРОКЛЯТАЯ КОРОНА" },
+    { L"PARTY HAT", L"ПРАЗДНИЧНАЯ ШЛЯПА" },
+    { L"SKULL COMPLETED", L"ЧЕРЕП ПРОЙДЕН" },
+    { L"PLAGUE COMPLETED", L"ЧУМА ПРОЙДЕНА" },
+    { L"DIRE COMPLETED", L"УЖАС ПРОЙДЕН" },
+    { L"PROTECT CHALLENGES", L"ЗАЩИТА ИСПЫТАНИЙ" },
+    { L"UNLOCK ALL ITEMS", L"ВСЕ ПРЕДМЕТЫ" },
+    { L"DAILY BIOME: DEFAULT", L"БИОМ: ОСНОВНОЙ" },
+    { L"FORCE DAILY RESEED", L"СБРОС СИДА ДНЯ" },
+    { L"ENABLE FAKE SAVE FAILURE", L"ОШИБКА СОХР. (ТЕСТ)" },
+    { L"ENABLE FAKE LOAD FAILURE", L"ОШИБКА ЗАГР. (ТЕСТ)" },
+
+    // Side Controls
+    { L"HIDE", L"СКРЫТЬ (F1)" },
+    { L"SHOW FPS", L"ПОКАЗАТЬ FPS" },
+    { L"TOGGLE FLOATER", L"ПАНЕЛЬ НАВЕДЕНИЯ" },
+    { L"MEMORY", L"ПАМЯТЬ" },
+    { L"SPAWN AT CAMERA POS", L"СПАВН В КАМЕРЕ" },
+    { L"REROUTE LOG", L"ЛОГИ" },
+
+    // Actions Tab
+    { L"GIVE COINS", L"ДОБАВИТЬ МОНЕТЫ (+20)" },
+    { L"GIVE GEMS", L"ДОБАВИТЬ КАМНИ (+5)" },
+    { L"INFINITE STAMINA", L"БЕСКОНЕЧНЫЙ БЕГ" },
+    { L"INVULNERABLE RULERS", L"БЕССМЕРТИЕ МОНАРХА" },
+    { L"INVULNERABLE WALLS", L"НЕУЯЗВИМЫЕ СТЕНЫ" },
+    { L"INVUNERABLE WALLS", L"НЕУЯЗВИМЫЕ СТЕНЫ" },
+    { L"AUTO BUILD ENABLED", L"МГНОВЕННАЯ СТРОЙКА" },
+    { L"DEFEAT GREED NOW", L"УБИТЬ ВСЕХ ЖАДИН" },
+    { L"DESTROY ALL PORTALS", L"ВЗОРВАТЬ ВСЕ ПОРТАЛЫ" },
+    { L"DESTROY CLOSEST PORTAL", L"ВЗОРВАТЬ БЛИЖ. ПОРТАЛ" },
+    { L"CUTDOWN ALL TREES", L"ВЫРУБИТЬ ВЕСЬ ЛЕС" },
+    { L"TRIGGER SNOW MELT", L"РАСТОПИТЬ СНЕГ" },
+    { L"RETREAT ENEMIES", L"БЕГСТВО ЖАДИН" },
+    { L"SPAWNING ENABLED", L"СПАВН ВРАГОВ (ВОЛНЫ)" },
+    { L"DISTRIBUTE ARCHERS", L"РАСПРЕДЕЛИТЬ СТРЕЛКОВ" },
+    { L"RANDOMIZE APPEARANCE THIS MOUNT", L"СМЕНИТЬ МАУНТА" },
+    { L"TIMESCALE INCREMENT", L"УСКОРИТЬ ИГРУ (+)" },
+    { L"TIMESCALE DECREMENT", L"ЗАМЕДЛИТЬ ИГРУ (-)" },
+    { L"SKIP DAY", L"ПРОПУСТИТЬ ДЕНЬ" },
+    { L"SKIP HOUR", L"ПРОПУСТИТЬ ЧАС" },
+    { L"DAY NIGHT PAUSE", L"ПАУЗА ВРЕМЕНИ" },
+    { L"START RED MOON", L"КРОВАВАЯ ЛУНА" },
+    { L"DEFEAT SNEK", L"УБИТЬ ЗМЕЯ" },
+    { L"STUN SNEK", L"ОГЛУШИТЬ ЗМЕЯ" },
+    { L"SUBMERGE SNEK", L"ПОГРУЗИТЬ ЗМЕЯ" },
+
+    // Teleport Locations
+    { L"CAMPFIRE", L"КОСТЕР / ЛАГЕРЬ" },
+    { L"HERMIT CABIN", L"ХИЖИНА ОТШЕЛЬНИКА" },
+    { L"RULER CAGE", L"КЛЕТКА ПРАВИТЕЛЯ" },
+    { L"RULER SHRINE", L"АЛТАРЬ ПРАВИТЕЛЯ" },
+    { L"BOAR CAMP", L"ЛАГЕРЬ КАБАНА" },
+    { L"BOAT WHARF", L"ПРИЧАЛ КОРАБЛЯ" },
+    { L"LEFTMOST PORTAL", L"КРАЙНИЙ ЛЕВЫЙ ПОРТАЛ" },
+    { L"RIGHTMOST PORTAL", L"КРАЙНИЙ ПРАВЫЙ ПОРТАЛ" },
+    { L"LEFT BORDER", L"ЛЕВАЯ ГРАНИЦА" },
+    { L"RIGHT BORDER", L"ПРАВАЯ ГРАНИЦА" },
+    { L"PIKE SHOP LEFT", L"КОПЕЙЩИК (СЛЕВА)" },
+    { L"PIKE SHOP RIGHT", L"КОПЕЙЩИК (СПРАВА)" },
+    { L"LEFT BEACH", L"ЛЕВЫЙ ПЛЯЖ" },
+    { L"RIGHT BEACH", L"ПРАВЫЙ ПЛЯЖ" }
+};
+
+static std::wstring TranslateString(const std::wstring& orig) {
+    if (orig.empty()) return orig;
+
+    for (const auto& pair : g_translations) {
+        if (orig == pair.first) {
+            return pair.second;
+        }
+    }
+
+    for (const auto& pair : g_translations) {
+        size_t pos = orig.find(pair.first);
+        if (pos != std::wstring::npos) {
+            std::wstring res = orig;
+            res.replace(pos, pair.first.length(), pair.second);
+            return res;
+        }
+    }
+
+    return orig;
+}
+
+// -------------------------------------------------------------
+// CURSOR VISIBILITY GUARANTEE
+// -------------------------------------------------------------
+static void EnsureCursorVisible() {
+    if (!g_domain || !g_coreImage) return;
+    p_il2cpp_thread_attach(g_domain);
+
+    // 1. UnityEngine.Cursor (CoreModule)
+    void* cursorClass = p_il2cpp_class_from_name(g_coreImage, "UnityEngine", "Cursor");
+    if (cursorClass) {
+        void* setVisMethod = p_il2cpp_class_get_method_from_name(cursorClass, "set_visible", 1);
+        if (setVisMethod) {
+            bool vis = true;
+            void* args[1] = { &vis };
+            void* exc = nullptr;
+            p_il2cpp_runtime_invoke(setVisMethod, nullptr, args, &exc);
+        }
+
+        void* setLockMethod = p_il2cpp_class_get_method_from_name(cursorClass, "set_lockState", 1);
+        if (setLockMethod) {
+            int lockMode = 0; // CursorLockMode.None
+            void* args[1] = { &lockMode };
+            void* exc = nullptr;
+            p_il2cpp_runtime_invoke(setLockMethod, nullptr, args, &exc);
+        }
+    }
+
+    // 2. Game's own CursorSystem (Assembly-CSharp)
+    if (g_gameImage) {
+        void* csClass = p_il2cpp_class_from_name(g_gameImage, "", "CursorSystem");
+        if (csClass) {
+            void* csType = p_il2cpp_class_get_type(csClass);
+            if (csType) {
+                void* csTypeObj = p_il2cpp_type_get_object(csType);
+                if (csTypeObj) {
+                    void* resClass = p_il2cpp_class_from_name(g_coreImage, "UnityEngine", "Resources");
+                    if (resClass) {
+                        void* findMethod = p_il2cpp_class_get_method_from_name(resClass, "FindObjectsOfTypeAll", 1);
+                        if (findMethod) {
+                            void* args[1] = { csTypeObj };
+                            void* exc = nullptr;
+                            Il2CppArray* arr = (Il2CppArray*)p_il2cpp_runtime_invoke(findMethod, nullptr, args, &exc);
+                            if (arr && !exc && arr->max_length > 0) {
+                                void* csInst = arr->vector[0];
+                                void* setForceMethod = p_il2cpp_class_get_method_from_name(csClass, "SetForceVisibleCursor", 1);
+                                if (setForceMethod) {
+                                    bool force = true;
+                                    void* mArgs[1] = { &force };
+                                    p_il2cpp_runtime_invoke(setForceMethod, csInst, mArgs, &exc);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Win32 Cursor unclip & ShowCursor
+    ClipCursor(nullptr);
+    while (ShowCursor(TRUE) < 0) {}
+}
+
+// -------------------------------------------------------------
+// TEXT TRANSLATION FOR IN-GAME DEBUG UI
+// -------------------------------------------------------------
+static void TranslateTextArray(Il2CppArray* arr, void* klass) {
+    if (!arr || arr->max_length == 0 || !klass || !p_il2cpp_string_new_utf16) return;
+
+    void* getTextMethod = p_il2cpp_class_get_method_from_name(klass, "get_text", 0);
+    void* setTextMethod = p_il2cpp_class_get_method_from_name(klass, "set_text", 1);
+    if (!getTextMethod || !setTextMethod) return;
+
+    for (uintptr_t i = 0; i < arr->max_length; i++) {
+        void* textComp = arr->vector[i];
+        if (!textComp) continue;
+
+        void* exc = nullptr;
+        Il2CppString* str = (Il2CppString*)p_il2cpp_runtime_invoke(getTextMethod, textComp, nullptr, &exc);
+        if (str && !exc && str->length > 0) {
+            std::wstring orig(str->chars, str->length);
+            std::wstring translated = TranslateString(orig);
+            if (translated != orig) {
+                Il2CppString* newStr = (Il2CppString*)p_il2cpp_string_new_utf16(
+                    translated.c_str(),
+                    (int32_t)translated.length()
+                );
+                if (newStr) {
+                    void* args[1] = { newStr };
+                    p_il2cpp_runtime_invoke(setTextMethod, textComp, args, &exc);
+                }
+            }
+        }
+    }
+}
+
+static void TranslateAllDebugText() {
+    if (!g_domain || !g_coreImage) return;
+    p_il2cpp_thread_attach(g_domain);
+
+    void* resClass = p_il2cpp_class_from_name(g_coreImage, "UnityEngine", "Resources");
+    if (!resClass) return;
+    void* findMethod = p_il2cpp_class_get_method_from_name(resClass, "FindObjectsOfTypeAll", 1);
+    if (!findMethod) return;
+
+    // 1. UnityEngine.UI.Text
+    if (g_uiImage) {
+        void* textClass = p_il2cpp_class_from_name(g_uiImage, "UnityEngine.UI", "Text");
+        if (textClass) {
+            void* type = p_il2cpp_class_get_type(textClass);
+            if (type) {
+                void* typeObj = p_il2cpp_type_get_object(type);
+                if (typeObj) {
+                    void* args[1] = { typeObj };
+                    void* exc = nullptr;
+                    Il2CppArray* arr = (Il2CppArray*)p_il2cpp_runtime_invoke(findMethod, nullptr, args, &exc);
+                    if (arr && !exc) {
+                        TranslateTextArray(arr, textClass);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. TMPro.TextMeshProUGUI / TMP_Text
+    if (g_tmpImage) {
+        void* tmpClass = p_il2cpp_class_from_name(g_tmpImage, "TMPro", "TextMeshProUGUI");
+        if (!tmpClass) tmpClass = p_il2cpp_class_from_name(g_tmpImage, "TMPro", "TMP_Text");
+        if (tmpClass) {
+            void* type = p_il2cpp_class_get_type(tmpClass);
+            if (type) {
+                void* typeObj = p_il2cpp_type_get_object(type);
+                if (typeObj) {
+                    void* args[1] = { typeObj };
+                    void* exc = nullptr;
+                    Il2CppArray* arr = (Il2CppArray*)p_il2cpp_runtime_invoke(findMethod, nullptr, args, &exc);
+                    if (arr && !exc) {
+                        TranslateTextArray(arr, tmpClass);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -110,6 +417,7 @@ static bool InitIl2Cpp() {
     p_il2cpp_runtime_invoke = (il2cpp_runtime_invoke_t)GetProcAddress(hGameAssembly, "il2cpp_runtime_invoke");
     p_il2cpp_class_get_type = (il2cpp_class_get_type_t)GetProcAddress(hGameAssembly, "il2cpp_class_get_type");
     p_il2cpp_type_get_object = (il2cpp_type_get_object_t)GetProcAddress(hGameAssembly, "il2cpp_type_get_object");
+    p_il2cpp_string_new_utf16 = (il2cpp_string_new_utf16_t)GetProcAddress(hGameAssembly, "il2cpp_string_new_utf16");
 
     if (!p_il2cpp_domain_get || !p_il2cpp_thread_attach || !p_il2cpp_runtime_invoke) {
         Log("[ERROR] Failed to find required IL2CPP exports!");
@@ -129,10 +437,16 @@ static bool InitIl2Cpp() {
         void* asmCore = p_il2cpp_domain_assembly_open(g_domain, "UnityEngine.CoreModule");
         if (asmCore) g_coreImage = p_il2cpp_assembly_get_image(asmCore);
 
+        void* asmUI = p_il2cpp_domain_assembly_open(g_domain, "UnityEngine.UI");
+        if (asmUI) g_uiImage = p_il2cpp_assembly_get_image(asmUI);
+
+        void* asmTMP = p_il2cpp_domain_assembly_open(g_domain, "Unity.TextMeshPro");
+        if (asmTMP) g_tmpImage = p_il2cpp_assembly_get_image(asmTMP);
+
         if (!g_gameImage || !g_coreImage) Sleep(200);
     }
 
-    Log("[INIT] Assembly-CSharp and UnityEngine.CoreModule loaded successfully!");
+    Log("[INIT] Assemblies loaded successfully!");
     return true;
 }
 
@@ -188,6 +502,32 @@ static void EnableKingdomDebugTools() {
     }
 }
 
+// Check if Debug Menu is currently open/visible
+static bool IsDebugMenuOpen() {
+    void* dt = GetDebugToolsInstance();
+    if (!dt) return false;
+
+    void* compClass = p_il2cpp_class_from_name(g_coreImage, "UnityEngine", "Component");
+    if (!compClass) return false;
+    void* getGOMethod = p_il2cpp_class_get_method_from_name(compClass, "get_gameObject", 0);
+    if (!getGOMethod) return false;
+
+    void* exc = nullptr;
+    void* go = p_il2cpp_runtime_invoke(getGOMethod, dt, nullptr, &exc);
+    if (!go || exc) return false;
+
+    void* goClass = p_il2cpp_class_from_name(g_coreImage, "UnityEngine", "GameObject");
+    if (!goClass) return false;
+    void* getActiveMethod = p_il2cpp_class_get_method_from_name(goClass, "get_activeSelf", 0);
+    if (!getActiveMethod) return false;
+
+    void* res = p_il2cpp_runtime_invoke(getActiveMethod, go, nullptr, &exc);
+    if (res && !exc) {
+        return *(bool*)((char*)res + sizeof(void*) * 2);
+    }
+    return g_menuVisible;
+}
+
 // Invoke a method on DebugTools
 static bool CallDebugToolsMethod(const char* methodName) {
     void* dt = GetDebugToolsInstance();
@@ -217,6 +557,7 @@ static void ToggleDebugMenu() {
     }
 
     EnableKingdomDebugTools();
+    g_menuVisible = !g_menuVisible;
 
     // Set GameObject active
     void* compClass = p_il2cpp_class_from_name(g_coreImage, "UnityEngine", "Component");
@@ -226,7 +567,7 @@ static void ToggleDebugMenu() {
     if (go && !exc) {
         void* goClass = p_il2cpp_class_from_name(g_coreImage, "UnityEngine", "GameObject");
         void* setActiveMethod = p_il2cpp_class_get_method_from_name(goClass, "SetActive", 1);
-        bool active = true;
+        bool active = g_menuVisible;
         void* args[1] = { &active };
         p_il2cpp_runtime_invoke(setActiveMethod, go, args, &exc);
     }
@@ -245,6 +586,11 @@ static void ToggleDebugMenu() {
     void* actionsMethod = p_il2cpp_class_get_method_from_name(dtClass, "OnButtonActions", 0);
     if (actionsMethod) {
         p_il2cpp_runtime_invoke(actionsMethod, dt, nullptr, &exc);
+    }
+
+    if (g_menuVisible) {
+        EnsureCursorVisible();
+        TranslateAllDebugText();
     }
 }
 
@@ -388,13 +734,13 @@ static DWORD WINAPI CheatThread(LPVOID lpParam) {
         return 1;
     }
 
-    Log("[READY] IL2CPP initialized. Hotkeys & IPC pipe active!");
+    Log("[READY] IL2CPP initialized. Hotkeys, Cursor Handler & In-Game Translation active!");
 
     CreateThread(nullptr, 0, PipeServerThread, nullptr, 0, nullptr);
 
     int walletLoopTick = 0;
 
-    // Polling loop for hotkeys
+    // Polling loop for hotkeys and background upkeep
     while (true) {
         Sleep(50);
         walletLoopTick++;
@@ -403,6 +749,14 @@ static DWORD WINAPI CheatThread(LPVOID lpParam) {
         if (g_cheatInfiniteWallet && (walletLoopTick % 6 == 0)) {
             CallDebugToolsMethod("OnButtonGiveCoins");
             CallDebugToolsMethod("OnButtonGiveGems");
+        }
+
+        // Keep mouse cursor visible and translate menu dynamically while open
+        if (IsDebugMenuOpen()) {
+            EnsureCursorVisible();
+            if (walletLoopTick % 4 == 0) { // every 200ms
+                TranslateAllDebugText();
+            }
         }
 
         bool ctrlPressed = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
